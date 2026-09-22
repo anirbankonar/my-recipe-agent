@@ -1,0 +1,539 @@
+# ruff: noqa
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import datetime
+import json
+import uuid
+from zoneinfo import ZoneInfo
+
+from google.adk.agents import Agent
+from google.adk.agents.callback_context import CallbackContext
+from google.adk.apps import App
+from google.adk.models import Gemini
+from google.adk.tools import ToolContext
+from google.adk.tools.preload_memory_tool import PreloadMemoryTool
+from google.cloud import firestore
+from google.genai import types
+
+FIRESTORE_PROJECT_ID = "qwiklabs-gcp-03-d94214de97af"
+STORAGE_BUCKET_NAME = "smart-recipe-assistant-qwiklabs-gcp-03-d94214de97af"
+
+
+def search_recipes(query: str = "", max_prep_time_mins: int = 0, exclude_allergens: str = "") -> str:
+    """Searches stored recipes in the Firestore database.
+
+    Args:
+        query: Optional search keyword for title, tags, or ingredients (e.g., 'salad', 'chicken', 'quick').
+        max_prep_time_mins: Optional maximum preparation time in minutes.
+        exclude_allergens: Optional comma-separated list of allergens to exclude (e.g., 'peanuts, shellfish').
+
+    Returns:
+        A JSON string containing the list of matching recipes.
+    """
+    try:
+        db = firestore.Client(project=FIRESTORE_PROJECT_ID)
+        recipes_ref = db.collection("recipes")
+        docs = recipes_ref.stream()
+
+        results = []
+        excluded = [a.strip().lower() for a in exclude_allergens.split(",") if a.strip()]
+
+        for doc in docs:
+            data = doc.to_dict()
+            title = data.get("title", "")
+            tags = [t.lower() for t in data.get("tags", [])]
+            ingredients = [i.lower() for i in data.get("ingredients", [])]
+            prep_time = data.get("prep_time_mins", 0)
+            doc_allergens = [a.lower() for a in data.get("allergens", [])]
+
+            # Filter by max prep time
+            if max_prep_time_mins > 0 and prep_time > max_prep_time_mins:
+                continue
+
+            # Filter by excluded allergens
+            if any(allergen in doc_allergens for allergen in excluded):
+                continue
+            if any(allergen in " ".join(ingredients) for allergen in excluded):
+                continue
+
+            # Filter by query
+            if query:
+                q = query.lower()
+                matches_title = q in title.lower()
+                matches_tags = any(q in t for t in tags)
+                matches_ingredients = any(q in i for i in ingredients)
+                if not (matches_title or matches_tags or matches_ingredients):
+                    continue
+
+            results.append(data)
+
+        if not results:
+            return f"No recipes found in Firestore matching query '{query}'."
+        return json.dumps(results, indent=2)
+    except Exception as e:
+        return f"Error searching recipes in Firestore: {e}"
+
+
+def save_recipe(title: str, prep_time_mins: int, ingredients: str, instructions: str, allergens: str = "", tags: str = "") -> str:
+    """Saves a new custom recipe to the Firestore database.
+
+    Args:
+        title: The name of the recipe.
+        prep_time_mins: Preparation time in minutes.
+        ingredients: Comma-separated list of ingredients.
+        instructions: Step-by-step cooking instructions.
+        allergens: Comma-separated list of allergens contained in the recipe (e.g. 'peanuts, soy').
+        tags: Comma-separated list of descriptive tags (e.g. 'vegetarian, dinner').
+
+    Returns:
+        A string confirming successful creation with the document ID.
+    """
+    try:
+        db = firestore.Client(project=FIRESTORE_PROJECT_ID)
+        doc_id = f"recipe-{uuid.uuid4().hex[:8]}"
+
+        ingredient_list = [i.strip() for i in ingredients.split(",") if i.strip()]
+        allergen_list = [a.strip().lower() for a in allergens.split(",") if a.strip()]
+        tag_list = [t.strip().lower() for t in tags.split(",") if t.strip()]
+
+        recipe_doc = {
+            "id": doc_id,
+            "title": title,
+            "prep_time_mins": prep_time_mins,
+            "ingredients": ingredient_list,
+            "instructions": instructions,
+            "allergens": allergen_list,
+            "tags": tag_list,
+        }
+
+        db.collection("recipes").document(doc_id).set(recipe_doc)
+        return f"Successfully saved recipe '{title}' to Firestore with ID '{doc_id}'."
+    except Exception as e:
+        return f"Error saving recipe to Firestore: {e}"
+
+
+def scale_and_calculate_nutrition(
+    servings_original: int,
+    servings_target: int,
+    ingredients_summary: str = "",
+    base_calories_per_serving: int = 400,
+) -> str:
+    """Scales recipe ingredient proportions and calculates estimated nutrition information.
+
+    Args:
+        servings_original: The original number of servings for the recipe (e.g. 2 or 4).
+        servings_target: The target number of servings desired by the user (e.g. 6).
+        ingredients_summary: A brief description or list of main ingredients.
+        base_calories_per_serving: Estimated base calories per serving (default 400).
+
+    Returns:
+        A JSON string with scaling multiplier, target servings, and estimated total calories & macronutrients.
+    """
+    if servings_original <= 0:
+        servings_original = 1
+    if servings_target <= 0:
+        servings_target = 1
+
+    scale_factor = round(servings_target / servings_original, 2)
+    total_calories = base_calories_per_serving * servings_target
+    protein_g = round(servings_target * 20, 1)
+    carbs_g = round(servings_target * 45, 1)
+    fat_g = round(servings_target * 15, 1)
+
+    result = {
+        "servings_original": servings_original,
+        "servings_target": servings_target,
+        "scale_factor": scale_factor,
+        "ingredients_summary": ingredients_summary,
+        "nutrition_estimate": {
+            "calories_per_serving": base_calories_per_serving,
+            "total_calories": total_calories,
+            "estimated_protein_g": protein_g,
+            "estimated_carbs_g": carbs_g,
+            "estimated_fat_g": fat_g,
+        },
+        "note": f"To adjust ingredient quantities, multiply all base ingredient amounts by {scale_factor}x.",
+    }
+    return json.dumps(result, indent=2)
+
+
+def fetch_online_recipes(query: str = "chicken") -> str:
+    """Fetches real online recipes and meal ideas from the free public TheMealDB API.
+
+    Args:
+        query: Search keyword for online recipes (e.g., 'chicken', 'pasta', 'salad', 'curry').
+
+    Returns:
+        A JSON string containing real online recipes with ingredients, category, area, and instructions.
+    """
+    import os
+    import urllib.parse
+    import urllib.request
+
+    api_key = os.getenv("THEMEALDB_API_KEY", "1")
+    safe_query = urllib.parse.quote(query.strip() if query else "chicken")
+    url = f"https://www.themealdb.com/api/json/v1/{api_key}/search.php?s={safe_query}"
+
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "SmartRecipeAssistant/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            meals = data.get("meals")
+            if not meals:
+                return f"No online recipes found matching '{query}'."
+
+            simplified_meals = []
+            for meal in meals[:5]:
+                ingredients = []
+                for i in range(1, 21):
+                    ing = meal.get(f"strIngredient{i}")
+                    measure = meal.get(f"strMeasure{i}")
+                    if ing and ing.strip():
+                        ingredients.append(f"{measure.strip() if measure else ''} {ing.strip()}".strip())
+
+                simplified_meals.append({
+                    "id": meal.get("idMeal"),
+                    "title": meal.get("strMeal"),
+                    "category": meal.get("strCategory"),
+                    "area": meal.get("strArea"),
+                    "instructions": (meal.get("strInstructions", "")[:300] + "..."),
+                    "ingredients": ingredients,
+                    "thumbnail_url": meal.get("strMealThumb"),
+                })
+
+            return json.dumps(simplified_meals, indent=2)
+    except Exception as e:
+        return f"Error fetching online recipes from public API: {e}"
+
+
+def geocode_address(address: str) -> str:
+    """Converts a human-readable street address into geographic coordinates (latitude and longitude) using Google Maps Geocoding API.
+
+    Args:
+        address: The street address or location name to geocode (e.g. '1600 Amphitheatre Pkwy, Mountain View, CA').
+
+    Returns:
+        A JSON string containing the formatted address, latitude, longitude, and place_id.
+    """
+    import os
+    import urllib.parse
+    import urllib.request
+
+    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        return "Error: GOOGLE_MAPS_API_KEY environment variable is not set."
+
+    safe_address = urllib.parse.quote(address.strip())
+    url = f"https://maps.googleapis.com/maps/api/geocode/json?address={safe_address}&key={api_key}"
+
+    try:
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            results = data.get("results", [])
+            if not results:
+                return f"No location results found for address '{address}'."
+
+            first = results[0]
+            loc = first.get("geometry", {}).get("location", {})
+            return json.dumps(
+                {
+                    "formatted_address": first.get("formatted_address"),
+                    "latitude": loc.get("lat"),
+                    "longitude": loc.get("lng"),
+                    "place_id": first.get("place_id"),
+                },
+                indent=2,
+            )
+    except Exception as e:
+        return f"Error geocoding address: {e}"
+
+
+def find_nearby_places(
+    latitude: float,
+    longitude: float,
+    place_type: str = "supermarket",
+    radius_meters: float = 1500.0,
+) -> str:
+    """Finds nearby places of a given type around a latitude/longitude location using Google Places API (New).
+
+    Args:
+        latitude: Center latitude coordinate.
+        longitude: Center longitude coordinate.
+        place_type: Type of place to search for (e.g. 'supermarket', 'grocery_store', 'restaurant', 'bakery').
+        radius_meters: Search radius in meters (default 1500 meters).
+
+    Returns:
+        A JSON string listing nearby places with their name, address, and location coordinates.
+    """
+    import os
+    import urllib.request
+
+    api_key = os.getenv("GOOGLE_MAPS_API_KEY")
+    if not api_key:
+        return "Error: GOOGLE_MAPS_API_KEY environment variable is not set."
+
+    url = "https://places.googleapis.com/v1/places:searchNearby"
+    payload = {
+        "includedTypes": [place_type.strip().lower()],
+        "maxResultCount": 5,
+        "locationRestriction": {
+            "circle": {
+                "center": {
+                    "latitude": latitude,
+                    "longitude": longitude,
+                },
+                "radius": radius_meters,
+            }
+        },
+    }
+
+    body = json.dumps(payload).encode("utf-8")
+    headers = {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": api_key,
+        "X-Goog-FieldMask": "places.displayName,places.formattedAddress,places.location",
+    }
+
+    try:
+        req = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            raw_places = data.get("places", [])
+            if not raw_places:
+                return f"No nearby places found of type '{place_type}'."
+
+            places = []
+            for p in raw_places:
+                display_name = p.get("displayName", {}).get("text", "")
+                formatted_address = p.get("formattedAddress", "")
+                loc = p.get("location", {})
+                places.append({
+                    "name": display_name,
+                    "address": formatted_address,
+                    "location": loc,
+                })
+
+            return json.dumps(places, indent=2)
+    except Exception as e:
+        return f"Error finding nearby places: {e}"
+
+
+def get_weather(query: str) -> str:
+    """Simulates a web search. Use it get information on weather.
+
+    Args:
+        query: A string containing the location to get weather information for.
+
+    Returns:
+        A string with the simulated weather information for the queried location.
+    """
+    if "sf" in query.lower() or "san francisco" in query.lower():
+        return "It's 60 degrees and foggy."
+    return "It's 90 degrees and sunny."
+
+
+def get_current_time(query: str) -> str:
+    """Simulates getting the current time for a city.
+
+    Args:
+        query: The name of the city to get the current time for.
+
+    Returns:
+        A string with the current time information.
+    """
+    if "sf" in query.lower() or "san francisco" in query.lower():
+        tz_identifier = "America/Los_Angeles"
+    else:
+        return f"Sorry, I don't have timezone information for query: {query}."
+
+    tz = ZoneInfo(tz_identifier)
+    now = datetime.datetime.now(tz)
+    return f"The current time for query {query} is {now.strftime('%Y-%m-%d %H:%M:%S %Z%z')}"
+
+
+async def generate_memories_callback(callback_context: CallbackContext):
+    """Sends the session events to Vertex AI Memory Bank after each turn."""
+    if getattr(callback_context, "memory_service", None) is not None:
+        try:
+            await callback_context.add_session_to_memory()
+        except Exception:
+            pass
+    return None
+
+
+def consult_herbal_docs(query: str) -> str:
+    """Search Nicholas Culpeper's Complete Herbal corpus for medicinal plants, herbs, natural remedies, and historical recipes.
+
+    Args:
+        query: What to look up in the herbal corpus (e.g. 'rosemary remedy for headache', 'thyme virtues', or 'mint').
+    Returns:
+        The matched passages from Nicholas Culpeper's Complete Herbal.
+    """
+    import os
+    import re
+    import vertexai
+    from vertexai.preview import rag
+
+    # 1. Attempt Vertex AI RAG Engine retrieval_query
+    try:
+        vertexai.init(project=FIRESTORE_PROJECT_ID, location="us-west1")
+        resp = rag.retrieval_query(
+            text=query,
+            rag_resources=[
+                rag.RagResource(
+                    rag_corpus="projects/qwiklabs-gcp-03-d94214de97af/locations/us-west1/ragCorpora/4611686018427387904"
+                )
+            ],
+            rag_retrieval_config=rag.RagRetrievalConfig(top_k=5),
+        )
+        contexts = getattr(resp.contexts, "contexts", [])
+        passages = [c.text.strip() for c in contexts if getattr(c, "text", "").strip()]
+        if passages:
+            return "\n\n---\n\n".join(passages)
+    except Exception:
+        pass
+
+    # 2. Local fallback retrieval on pg49513.txt
+    local_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "pg49513.txt")
+    if not os.path.exists(local_path):
+        return "Herbal document corpus file not found."
+
+    try:
+        with open(local_path, "r", encoding="utf-8", errors="ignore") as f:
+            text = f.read()
+        paragraphs = [p.strip() for p in text.split("\n\n") if len(p.strip()) > 50]
+        query_words = [w.lower() for w in re.findall(r"\w+", query) if len(w) > 2]
+        scored = []
+        for p in paragraphs:
+            p_lower = p.lower()
+            score = sum(1 for w in query_words if w in p_lower)
+            if score > 0:
+                scored.append((score, p))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top_matches = [p for s, p in scored[:5]]
+        return "\n\n---\n\n".join(top_matches) if top_matches else "No matching passages found in the herbal corpus."
+    except Exception as e:
+        return f"Retrieval failed: {e}"
+
+
+def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
+    """Generates a visual image of a recipe dish using AI, saves it as an artifact, uploads it to public Cloud Storage, and returns its public URL.
+
+    Args:
+        dish_name: The name or description of the recipe dish to generate an image for (e.g., 'Fresh Basil Tomato Pasta' or 'Strawberry Mint Soup').
+        tool_context: The ADK tool context provided automatically by the runner.
+
+    Returns:
+        The public HTTPS URL of the uploaded image in Cloud Storage.
+    """
+    import re
+    import uuid
+    from google import genai
+    from google.cloud import storage
+    from google.genai import types
+
+    # 1. Generate image using gemini-3.1-flash-lite-image in global region
+    client = genai.Client(vertexai=True, project=FIRESTORE_PROJECT_ID, location="global")
+    prompt = f"A professional, vibrant, delicious culinary photograph of {dish_name}, beautifully plated and ready to serve."
+
+    try:
+        response = client.models.generate_content(
+            model="gemini-3.1-flash-lite-image",
+            contents=prompt,
+            config=types.GenerateContentConfig(response_modalities=["TEXT", "IMAGE"]),
+        )
+    except Exception as e:
+        return f"Failed to generate image: {e}"
+
+    image_bytes = None
+    for candidate in getattr(response, "candidates", []):
+        for part in getattr(candidate.content, "parts", []):
+            if getattr(part, "inline_data", None):
+                image_bytes = part.inline_data.data
+                break
+        if image_bytes:
+            break
+
+    if not image_bytes:
+        return f"No image data was generated for '{dish_name}'."
+
+    clean_name = re.sub(r"[^\w\-]", "_", dish_name.lower().strip())[:30]
+    unique_filename = f"{clean_name}_{uuid.uuid4().hex[:8]}.png"
+
+    # (1) Save artifact with tool_context.save_artifact so it shows up in Playground's Artifacts panel
+    if tool_context and hasattr(tool_context, "save_artifact"):
+        try:
+            artifact_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
+            tool_context.save_artifact(filename=unique_filename, artifact=artifact_part)
+        except Exception as e:
+            print(f"Warning: Failed to save artifact: {e}")
+
+    # (2) Upload same image bytes to public Cloud Storage bucket and return public https URL
+    try:
+        storage_client = storage.Client(project=FIRESTORE_PROJECT_ID)
+        bucket = storage_client.bucket(STORAGE_BUCKET_NAME)
+        blob_path = f"dishes/{unique_filename}"
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(image_bytes, content_type="image/png")
+        public_url = f"https://storage.googleapis.com/{STORAGE_BUCKET_NAME}/{blob_path}"
+        return public_url
+    except Exception as e:
+        return f"Failed to upload image to Cloud Storage: {e}"
+
+
+root_agent = Agent(
+    name="root_agent",
+    model=Gemini(
+        model="gemini-2.5-flash",
+        vertexai=True,
+        project=FIRESTORE_PROJECT_ID,
+        location="us-east1",
+        retry_options=types.HttpRetryOptions(attempts=3),
+    ),
+    instruction=(
+        "You are a Smart Recipe & Dietary Assistant.\n"
+        "CRITICAL MEMORY & DIETARY SAFETY RULES:\n"
+        "1. You MUST track, remember, and strictly enforce ALL user allergies, food intolerances, and dietary restrictions mentioned across previous and current sessions.\n"
+        "2. When answering recipe requests or suggesting food options, ALWAYS search the Firestore database using `search_recipes` and check preloaded user memories for any recorded allergies or dietary constraints.\n"
+        "3. NEVER recommend, list, or include any ingredients that conflict with the user's recorded allergies or dietary restrictions.\n"
+        "4. Use `save_recipe` when the user asks to save or store a new recipe.\n"
+        "5. Use `scale_and_calculate_nutrition` when the user asks to adjust serving sizes or scale recipe quantities and estimate nutrition.\n"
+        "6. Use `fetch_online_recipes` to search for real global recipes, inspiration, or dishes from the public online database.\n"
+        "7. Use `geocode_address` to turn street addresses into geographic coordinates (lat/lng).\n"
+        "8. Use `find_nearby_places` to find nearby supermarkets, grocery stores, restaurants, or bakeries around given coordinates.\n"
+        "9. Use `consult_herbal_docs` to search Nicholas Culpeper's Complete Herbal document corpus for medicinal plants, herbs, natural remedies, and historical recipes.\n"
+        "10. Use `generate_recipe_image` to generate a photo of a recipe dish using AI, save it as an artifact, and upload it to Cloud Storage."
+    ),
+    tools=[
+        PreloadMemoryTool(),
+        search_recipes,
+        save_recipe,
+        scale_and_calculate_nutrition,
+        fetch_online_recipes,
+        geocode_address,
+        find_nearby_places,
+        consult_herbal_docs,
+        generate_recipe_image,
+        get_weather,
+        get_current_time,
+    ],
+    after_agent_callback=generate_memories_callback,
+)
+
+app = App(
+    root_agent=root_agent,
+    name="app",
+)
