@@ -3,9 +3,9 @@ import vertexai
 from vertexai.preview import rag
 from vertexai.preview.rag.utils import resources as rr
 
-PROJECT_ID = "qwiklabs-gcp-03-d94214de97af"
+PROJECT_ID = "qwiklabs-gcp-03-d2603dc6aba2"
 LOCATION = "us-central1"  # serverless mode is us-central1
-GCS_PATH = "gs://smart-recipe-assistant-qwiklabs-gcp-03-d94214de97af/rag/pg49513.txt"
+GCS_PATH = "gs://smart-recipe-assistant-qwiklabs-gcp-03-d2603dc6aba2/rag/pg49513.txt"
 
 PARSING_PROMPT = (
     "Extract the individual useful facts, medicinal herbs, dietary recommendations, and recipes described in this text. "

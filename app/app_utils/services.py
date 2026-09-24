@@ -22,6 +22,7 @@ is visible to the others.
 from __future__ import annotations
 
 import functools
+import json
 import os
 
 from google.adk.artifacts import GcsArtifactService, InMemoryArtifactService
@@ -33,7 +34,7 @@ ARTIFACT_SERVICE_URI = "shared://artifact"
 MEMORY_SERVICE_URI = "shared://memory"
 
 _AGENT_DIR = os.path.dirname(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    os.path.dirname(os.path.abspath(__file__))
 )
 
 
@@ -47,12 +48,13 @@ def get_session_service():
     if agent_engine_id := os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID"):
         from google.adk.sessions.vertex_ai_session_service import VertexAiSessionService
 
+        loc = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION") or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-east1")
+        if loc == "global":
+            loc = "us-east1"
+
         return VertexAiSessionService(
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT"),
-            # Runtime-injected agent-engine region, not GOOGLE_CLOUD_LOCATION
-            # (which agent.py pins to "global").
-            location=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
-            or os.environ.get("GOOGLE_CLOUD_LOCATION"),
+            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "qwiklabs-gcp-03-d2603dc6aba2"),
+            location=loc,
             agent_engine_id=agent_engine_id,
         )
     from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -70,34 +72,46 @@ def get_artifact_service():
 
 @functools.cache
 def get_memory_service():
-    """Process-wide memory service using Vertex AI Memory Bank when deployed/configured."""
-    if uri := os.environ.get("MEMORY_SERVICE_URI"):
-        from google.adk.cli.utils.service_factory import (
-            create_memory_service_from_options,
-        )
+    """Process-wide memory service using Vertex AI Memory Bank for deployed ReasoningEngine."""
+    project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "qwiklabs-gcp-03-d2603dc6aba2")
+    loc = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION") or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-east1")
+    if loc == "global":
+        loc = "us-east1"
 
-        return create_memory_service_from_options(
-            base_dir=_AGENT_DIR, memory_service_uri=uri
-        )
-    if memory_bank_id := (
-        os.environ.get("MEMORY_BANK_ID")
-        or os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID")
-    ):
+    agent_engine_id = os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_ID") or os.environ.get("MEMORY_BANK_ID")
+
+    # If ID points to an old deleted ID or is missing, check deployment_metadata.json
+    stale_ids = {"8105399608848416768", "3622928196917264384"}
+    if not agent_engine_id or agent_engine_id in stale_ids:
+        metadata_path = os.path.join(_AGENT_DIR, "deployment_metadata.json")
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+                    rt_id = metadata.get("remote_agent_runtime_id", "")
+                    if rt_id and "reasoningEngines/" in rt_id:
+                        agent_engine_id = rt_id.split("/")[-1]
+            except Exception:
+                pass
+
+    if not agent_engine_id or agent_engine_id in stale_ids:
+        from google.adk.memory import InMemoryMemoryService
+        return InMemoryMemoryService()
+
+    try:
         from google.adk.memory import VertexAiMemoryBankService
-
         return VertexAiMemoryBankService(
-            project=os.environ.get("GOOGLE_CLOUD_PROJECT", "qwiklabs-gcp-03-d94214de97af"),
-            location=os.environ.get("GOOGLE_CLOUD_AGENT_ENGINE_LOCATION")
-            or os.environ.get("GOOGLE_CLOUD_LOCATION", "us-east1"),
-            agent_engine_id=memory_bank_id,
+            project=project_id,
+            location=loc,
+            agent_engine_id=agent_engine_id,
         )
-    from google.adk.memory import InMemoryMemoryService
-
-    return InMemoryMemoryService()
+    except Exception as e:
+        print(f"Warning: Failed to initialize VertexAiMemoryBankService: {e}")
+        from google.adk.memory import InMemoryMemoryService
+        return InMemoryMemoryService()
 
 
 _registry = get_service_registry()
 _registry.register_session_service("shared", lambda uri, **kw: get_session_service())
 _registry.register_artifact_service("shared", lambda uri, **kw: get_artifact_service())
 _registry.register_memory_service("shared", lambda uri, **kw: get_memory_service())
-

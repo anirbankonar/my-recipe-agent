@@ -1,94 +1,147 @@
-# simple-agent
+# Smart Recipe & Dietary Assistant
 
-Simple ReAct agent
-Agent generated with `agents-cli` version `1.1.0`
+An intelligent personal chef and dietary safety guardian agent built with Google's Agent Development Kit (ADK), Google Cloud Firestore, Imagen image generation, and A2UI dynamic user interface rendering.
 
-## Project Structure
+![Smart Recipe Assistant Demo](demo.gif)
+
+---
+
+## 🌟 What the Agent Does
+
+The **Smart Recipe & Dietary Assistant** helps users discover customized recipes, scale ingredient portions, search nearby grocery markets, and enforce strict dietary safety boundaries.
+
+### Implemented Capabilities
+
+* **🛡️ Key-Value Allergy Memory (Firestore)**
+  * Stores user dietary restrictions as key-value pairs in **Google Cloud Firestore** (`user_allergies` collection).
+  * Automatically retrieves active allergy rules on every turn and strictly refuses recipes containing forbidden allergens.
+
+* **🍲 Recipe Search & Strict Exclusion Filtering**
+  * Searches stored recipes in Firestore (`search_recipes`) and live online sources (`fetch_online_recipes`).
+  * Enforces allergen exclusion parameters to ensure no unsafe ingredients reach the user.
+
+* **📊 Portion Scaling & Nutritional Macro Calculation**
+  * Calculates scaled ingredient quantities based on custom serving counts (`scale_and_calculate_nutrition`).
+  * Computes total calories, protein, carbohydrates, and fats.
+
+* **📸 Generative Food Photography**
+  * Generates high-quality dish imagery using **Google GenAI / Imagen** (`generate_recipe_image`).
+  * Uploads generated culinary photos directly to **Google Cloud Storage** bucket.
+
+* **🌿 Nicholas Culpeper Herbal Remedies**
+  * Consults historical 1653 Nicholas Culpeper herbal medicine lore (`consult_culpeper_herbal`) for plant-based wellness guidance.
+
+* **🏪 Local Grocery Market Finder**
+  * Locates nearby grocery stores, supermarkets, and specialty food markets (`find_nearby_grocery_stores`).
+
+* **🎨 A2UI Dynamic Interface Protocol**
+  * Emits rich, structural `<a2ui-json>` protocol blocks parsed by the Fast API web interface into interactive Cards, Columns, Rows, Text, Images, and Action Buttons.
+
+* **🧠 Multi-Turn Session Memory**
+  * Retains multi-turn conversation context across sessions using ADK `MemoryService` and `PreloadMemoryTool`.
+
+---
+
+## 📋 Capabilities Matrix
+
+| Service / Feature | Capability | Status |
+| :--- | :--- | :--- |
+| **Google Cloud Firestore** | Key-value allergy storage (`user_allergies`) & recipe queries | ✅ Implemented |
+| **Google Cloud Storage** | Image artifact storage bucket | ✅ Implemented |
+| **Vertex AI / Imagen** | Generative culinary photography (`generate_recipe_image`) | ✅ Implemented |
+| **A2UI Protocol** | Rich dynamic UI rendering (`<a2ui-json>`) | ✅ Implemented |
+| **Memory Bank** | Multi-turn dialogue session persistence (`PreloadMemoryTool`) | ✅ Implemented |
+| **FastAPI Proxy Frontend** | Glassmorphic web chat interface & active allergy bar | ✅ Implemented |
+| **Culpeper Herbal Database** | Historical plant remedy lookup | ✅ Implemented |
+| **Smart Oven IoT Control** | Direct integration with smart appliances | ⏳ Planned (Not yet implemented) |
+| **Automated Checkout** | Direct Instacart / Delivery cart population | ⏳ Planned (Not yet implemented) |
+
+---
+
+## 📁 Project Structure
 
 ```
-simple-agent/
-├── app/         # Core agent code
-│   ├── agent.py               # Main agent logic
-│   ├── fast_api_app.py        # FastAPI Backend server
-│   └── app_utils/             # App utilities and helpers
-├── tests/                     # Unit, integration, and load tests
-├── GEMINI.md                  # AI-assisted development guide
-└── pyproject.toml             # Project dependencies
+smart-recipe-assistant/
+├── app/                      # Core ADK Agent implementation
+│   ├── agent.py              # Main agent definition & tool functions
+│   ├── a2ui_utils.py         # A2UI prompt builder & callbacks
+│   └── fast_api_app.py       # FastAPI backend entrypoint
+├── frontend/                 # Web interface application
+│   ├── app.py                # FastAPI proxy server & Firestore endpoints
+│   └── static/index.html     # Rebranded A2UI glassmorphic chat interface
+├── tests/                    # Unit and integration test suite
+├── demo.gif                  # Recorded inline demonstration
+├── pyproject.toml            # Project dependencies
+└── agents-cli-manifest.yaml  # Agents CLI deployment manifest
 ```
 
-> 💡 **Tip:** Use [Antigravity CLI](https://antigravity.google/) for AI-assisted development - project context is pre-configured in `GEMINI.md`.
+---
 
-## Requirements
+## 🚀 Setup & Running Locally
 
-Before you begin, ensure you have:
-- **uv**: Python package manager (used for all dependency management in this project) - [Install](https://docs.astral.sh/uv/getting-started/installation/) ([add packages](https://docs.astral.sh/uv/concepts/dependencies/) with `uv add <package>`)
-- **agents-cli**: Agents CLI - Install with `uv tool install google-agents-cli`
-- **Google Cloud SDK**: For GCP services - [Install](https://cloud.google.com/sdk/docs/install)
+### Prerequisites
 
+* **Python**: 3.12+
+* **uv**: Package manager ([Installation Guide](https://docs.astral.sh/uv/getting-started/installation/))
+* **Google Cloud SDK**: Authenticated with `gcloud auth application-default login`
 
-## Quick Start
+### 1. Installation
 
-Install `agents-cli` and its skills if not already installed:
+Install project dependencies using `agents-cli` or `uv`:
 
 ```bash
-uvx google-agents-cli setup
-```
-
-Install required packages:
-
-```bash
+uv tool install google-agents-cli
 agents-cli install
 ```
 
-Test the agent with a local web server:
+### 2. Run Agent Playground (Local Interactive CLI)
+
+Test the agent logic locally in playground mode:
 
 ```bash
 agents-cli playground
 ```
 
-You can also use features from the [ADK](https://adk.dev/) CLI with `uv run adk`.
+### 3. Run Web Frontend (Local Chat UI)
 
-## Commands
+Launch the FastAPI web server to test the rebranded interface and A2UI dynamic components locally:
 
-| Command              | Description                                                                                 |
-| -------------------- | ------------------------------------------------------------------------------------------- |
-| `agents-cli install` | Install dependencies using uv                                                         |
-| `agents-cli playground` | Launch local development environment                                                  |
-| `agents-cli lint`    | Run code quality checks                                                               |
-| `agents-cli eval`    | Evaluate agent behavior (generate, grade, analyze, and more — see `agents-cli eval --help`) |
-| `uv run pytest tests/unit tests/integration` | Run unit and integration tests                                                        |
-| `agents-cli deploy`  | Deploy agent to Agent Runtime                                                                |
-| `agents-cli publish gemini-enterprise` | Register deployed agent to Gemini Enterprise                    || [A2A Inspector](https://github.com/a2aproject/a2a-inspector) | Launch A2A Protocol Inspector                                                        |
+```bash
+uv run python -m frontend.app
+```
 
-## 🛠️ Project Management
-
-| Command | What It Does |
-|---------|--------------|
-| `agents-cli scaffold enhance` | Add CI/CD pipelines and Terraform infrastructure |
-| `agents-cli infra cicd` | One-command setup of entire CI/CD pipeline + infrastructure |
-| `agents-cli scaffold upgrade` | Auto-upgrade to latest version while preserving customizations |
+Once started, open your web browser to `http://localhost:8080` (or `http://127.0.0.1:8080`).
 
 ---
 
-## Development
+## 🧪 Testing & Evaluation
 
-Edit your agent logic in `app/agent.py` and test with `agents-cli playground` - it auto-reloads on save.
-
-## Deployment
+Run unit and integration tests:
 
 ```bash
-gcloud config set project <your-project-id>
-agents-cli deploy
+uv run pytest tests/unit tests/integration
 ```
 
-To add CI/CD and Terraform, run `agents-cli scaffold enhance`.
-To set up your production infrastructure, run `agents-cli infra cicd`.
+Evaluate agent behavior using `agents-cli`:
 
-## Observability
+```bash
+agents-cli eval generate
+agents-cli eval grade
+```
 
-Built-in telemetry exports to Cloud Trace, BigQuery, and Cloud Logging.
+---
 
-## A2A Inspector
+## ☁️ Deployment
 
-This agent supports the [A2A Protocol](https://a2a-protocol.org/). Use the [A2A Inspector](https://github.com/a2aproject/a2a-inspector) to test interoperability.
-See the [A2A Inspector docs](https://github.com/a2aproject/a2a-inspector) for details.
+To deploy the agent runtime and web frontend to Google Cloud:
+
+```bash
+# Set your target project ID
+gcloud config set project <your-project-id>
+
+# Deploy Agent Runtime
+agents-cli deploy
+
+# Deploy Web Frontend to Cloud Run
+gcloud run deploy recipe-assistant-frontend --source ./frontend --region us-east1
+```

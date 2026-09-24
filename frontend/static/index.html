@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart Recipe & Dietary Assistant</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: radial-gradient(circle at 50% 0%, #2e1065 0%, #0f172a 60%, #090d16 100%);
+      --card-bg: rgba(23, 27, 44, 0.85);
+      --card-border: rgba(245, 158, 11, 0.25);
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #f59e0b;
+      --primary-hover: #d97706;
+      --accent: #f97316;
+      --user-msg-bg: linear-gradient(135deg, #ea580c 0%, #f97316 100%);
+      --agent-msg-bg: rgba(30, 41, 59, 0.95);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Main Container */
+    .container {
+      width: 100%;
+      max-width: 980px;
+      height: 94vh;
+      display: flex;
+      flex-direction: column;
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--card-border);
+      border-radius: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.75), 0 0 35px rgba(245, 158, 11, 0.12);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Header */
+    .header {
+      padding: 1rem 1.75rem;
+      background: rgba(15, 23, 42, 0.9);
+      border-bottom: 1px solid var(--card-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      z-index: 10;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .menu-toggle-btn {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: #fbbf24;
+      border-radius: 12px;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .menu-toggle-btn:hover {
+      background: rgba(245, 158, 11, 0.2);
+      transform: scale(1.05);
+    }
+
+    .brand-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+      font-size: 1.35rem;
+    }
+
+    .header-title-text h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fbbf24 0%, #f97316 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .header-title-text p {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+    }
+
+    .status-badge {
+      font-size: 0.75rem;
+      padding: 0.35rem 0.85rem;
+      border-radius: 9999px;
+      background: rgba(245, 158, 11, 0.15);
+      color: #fbbf24;
+      border: 1px solid rgba(245, 158, 11, 0.35);
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #fbbf24;
+      box-shadow: 0 0 8px #fbbf24;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* 🛡️ Feature 1: Active Allergy Bar (Header Subwidget) */
+    .allergy-bar-container {
+      padding: 0.6rem 1.75rem;
+      background: rgba(15, 23, 42, 0.75);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      font-size: 0.82rem;
+    }
+
+    .allergy-bar-label {
+      color: #fbbf24;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      white-space: nowrap;
+    }
+
+    .allergy-chips-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+
+    .allergy-chip {
+      background: rgba(239, 68, 68, 0.18);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-weight: 500;
+      font-size: 0.8rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      animation: fadeIn 0.2s ease-out;
+    }
+
+    .allergy-chip button {
+      background: none;
+      border: none;
+      color: #f87171;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: 0.85rem;
+      line-height: 1;
+      padding: 0 2px;
+      transition: color 0.2s;
+    }
+
+    .allergy-chip button:hover {
+      color: #ffffff;
+    }
+
+    .add-allergy-btn {
+      background: rgba(245, 158, 11, 0.15);
+      border: 1px dashed rgba(245, 158, 11, 0.5);
+      color: #fbbf24;
+      padding: 0.25rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+    }
+
+    .add-allergy-btn:hover {
+      background: rgba(245, 158, 11, 0.3);
+      border-style: solid;
+    }
+
+    .inline-allergy-input-wrapper {
+      display: none;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .inline-allergy-input {
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid #f59e0b;
+      border-radius: 9999px;
+      padding: 0.2rem 0.65rem;
+      color: #ffffff;
+      font-size: 0.8rem;
+      outline: none;
+      width: 130px;
+    }
+
+    .save-allergy-chip-btn {
+      background: #f59e0b;
+      border: none;
+      color: #0f172a;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* Chat Messages */
+    .chat-messages {
+      flex: 1;
+      padding: 1.5rem 2rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      scroll-behavior: smooth;
+    }
+
+    .dialogue-row {
+      display: flex;
+      gap: 1rem;
+      max-width: 88%;
+      animation: slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dialogue-row.user {
+      align-self: flex-end;
+      flex-direction: row-reverse;
+    }
+
+    .dialogue-row.agent {
+      align-self: flex-start;
+    }
+
+    .avatar {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .dialogue-row.user .avatar {
+      background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      color: #ffffff;
+    }
+
+    .dialogue-row.agent .avatar {
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+      color: #ffffff;
+    }
+
+    .bubble-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .sender-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      padding: 0 0.25rem;
+    }
+
+    .dialogue-row.user .sender-meta {
+      text-align: right;
+    }
+
+    .message-content {
+      padding: 1rem 1.25rem;
+      border-radius: 18px;
+      font-size: 0.95rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .dialogue-row.user .message-content {
+      background: var(--user-msg-bg);
+      color: #ffffff;
+      border-top-right-radius: 4px;
+      box-shadow: 0 6px 18px rgba(234, 88, 12, 0.35);
+    }
+
+    .dialogue-row.agent .message-content {
+      background: var(--agent-msg-bg);
+      color: var(--text-main);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-top-left-radius: 4px;
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+    }
+
+    .a2ui-surface-wrapper {
+      margin-top: 0.75rem;
+      width: 100%;
+    }
+
+    /* Example Prompts Row */
+    .prompts-section {
+      padding: 0.75rem 2rem 0.25rem 2rem;
+      background: rgba(15, 23, 42, 0.6);
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .prompts-label {
+      font-size: 0.75rem;
+      color: #fbbf24;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .prompts-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+    }
+
+    @media (max-width: 768px) {
+      .prompts-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .prompt-pill {
+      background: rgba(30, 41, 59, 0.8);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      border-radius: 12px;
+      padding: 0.65rem 0.85rem;
+      color: #e2e8f0;
+      font-size: 0.82rem;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .prompt-pill:hover {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: #f59e0b;
+      color: #ffffff;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.25);
+    }
+
+    .prompt-pill .icon {
+      font-size: 1.05rem;
+      flex-shrink: 0;
+    }
+
+    /* Input Footer */
+    .input-container {
+      padding: 1rem 2rem 1.25rem 2rem;
+      background: rgba(15, 23, 42, 0.85);
+      display: flex;
+      gap: 0.75rem;
+    }
+
+    .chat-input {
+      flex: 1;
+      background: rgba(30, 41, 59, 0.9);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 14px;
+      padding: 0.85rem 1.25rem;
+      color: var(--text-main);
+      font-family: inherit;
+      font-size: 0.95rem;
+      outline: none;
+      transition: all 0.2s ease;
+    }
+
+    .chat-input:focus {
+      border-color: #f59e0b;
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.25);
+    }
+
+    .send-btn {
+      background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%);
+      color: #ffffff;
+      border: none;
+      border-radius: 14px;
+      padding: 0.85rem 1.6rem;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.4);
+    }
+
+    .send-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(245, 158, 11, 0.55);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .loading-dots {
+      display: inline-flex;
+      gap: 4px;
+    }
+
+    .loading-dots span {
+      width: 6px;
+      height: 6px;
+      background: #fbbf24;
+      border-radius: 50%;
+      animation: blink 1.4s infinite ease-in-out both;
+    }
+
+    .loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+    .loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+    @keyframes blink {
+      0%, 80%, 100% { transform: scale(0); }
+      40% { transform: scale(1); }
+    }
+
+    /* 📜 Feature 5: Slide-out Navigation Drawer */
+    .sidebar-drawer {
+      position: absolute;
+      top: 0;
+      left: -320px;
+      width: 310px;
+      height: 100%;
+      background: rgba(15, 23, 42, 0.96);
+      backdrop-filter: blur(24px);
+      border-right: 1px solid rgba(245, 158, 11, 0.3);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      transition: left 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+      box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
+    }
+
+    .sidebar-drawer.open {
+      left: 0;
+    }
+
+    .drawer-backdrop {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 90;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.35s ease;
+    }
+
+    .drawer-backdrop.open {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .drawer-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .drawer-header h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #fbbf24;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .close-drawer-btn {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.4rem;
+      cursor: pointer;
+      transition: color 0.2s;
+    }
+
+    .close-drawer-btn:hover {
+      color: #ffffff;
+    }
+
+    .drawer-body {
+      flex: 1;
+      padding: 1.25rem 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .drawer-section-title {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: #f97316;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.75rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .history-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .history-item {
+      background: rgba(30, 41, 59, 0.7);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .history-item:hover {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #ffffff;
+      transform: translateX(3px);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Backdrop Overlay for Drawer -->
+    <div class="drawer-backdrop" id="drawer-backdrop" onclick="toggleSidebarDrawer()"></div>
+
+    <!-- 📜 Feature 5: Slide-out Sidebar Drawer -->
+    <div class="sidebar-drawer" id="sidebar-drawer">
+      <div class="drawer-header">
+        <h2>👨‍🍳 Recipe Assistant</h2>
+        <button class="close-drawer-btn" onclick="toggleSidebarDrawer()">✕</button>
+      </div>
+      <div class="drawer-body">
+        <div>
+          <div class="drawer-section-title">🕒 Recent Queries</div>
+          <div class="history-list" id="history-list">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+        <div>
+          <div class="drawer-section-title">📖 Recipe Collections</div>
+          <div class="history-list">
+            <div class="history-item" onclick="sendSuggestedPrompt('Show my saved recipes')">⭐ Saved Recipes</div>
+            <div class="history-item" onclick="sendSuggestedPrompt('Show quick 15-minute meal ideas')">⚡ 15-Min Quick Meals</div>
+            <div class="history-item" onclick="sendSuggestedPrompt('Consult Nicholas Culpeper herbal remedies')">🌿 Culpeper Herbal Remedies</div>
+          </div>
+        </div>
+
+        <div>
+          <div class="drawer-section-title">🛡️ Dietary Safety Guard</div>
+          <div style="font-size: 0.85rem; color: #94a3b8; line-height: 1.5; background: rgba(30, 41, 59, 0.5); padding: 0.85rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
+            Active allergies stored in Firestore are automatically excluded from all recipe search results.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Rebranded Header -->
+    <div class="header">
+      <div class="header-left">
+        <button class="menu-toggle-btn" onclick="toggleSidebarDrawer()" title="Open Navigation Drawer">☰</button>
+        <div class="brand-icon">👨‍🍳</div>
+        <div class="header-title-text">
+          <h1>Smart Recipe & Dietary Assistant</h1>
+          <p>AI-Powered Personal Chef & Allergy Guardian</p>
+        </div>
+      </div>
+      <div class="status-badge" id="status-badge">
+        <span class="status-dot"></span>
+        <span id="badge-text">Memory Active</span>
+      </div>
+    </div>
+
+    <!-- 🛡️ Feature 1: Active Allergy & Dietary Preference Bar -->
+    <div class="allergy-bar-container">
+      <div class="allergy-bar-label">🛡️ Active Allergies:</div>
+      <div class="allergy-chips-wrapper" id="allergy-chips-wrapper">
+        <span style="font-size: 0.8rem; color: var(--text-muted);" id="allergy-loading-text">Loading Firestore allergies...</span>
+      </div>
+      <button class="add-allergy-btn" onclick="toggleInlineAllergyInput()">+ Add Allergy</button>
+      <div class="inline-allergy-input-wrapper" id="inline-allergy-input-wrapper">
+        <input type="text" id="inline-allergy-input" class="inline-allergy-input" placeholder="e.g. peanuts, dairy" onkeypress="handleAllergyInputKeyPress(event)">
+        <button class="save-allergy-chip-btn" onclick="submitNewAllergyFromInput()">✓</button>
+      </div>
+    </div>
+
+    <!-- Dialogue Container -->
+    <div class="chat-messages" id="chat-messages">
+      <div class="dialogue-row agent">
+        <div class="avatar">👨‍🍳</div>
+        <div class="bubble-container">
+          <div class="sender-meta">Smart Chef • Assistant</div>
+          <div class="message-content">Hello! I am your Smart Recipe & Dietary Assistant. Ask me for custom recipe recommendations, manage your food allergies, or search nearby grocery markets!</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row of 3 Clickable Example Prompts -->
+    <div class="prompts-section">
+      <div class="prompts-label">✨ Suggested Prompts</div>
+      <div class="prompts-grid">
+        <button class="prompt-pill" onclick="sendSuggestedPrompt('Give me a healthy pasta recipe excluding my allergies')">
+          <span class="icon">🍝</span>
+          <span>Healthy pasta recipe without allergies</span>
+        </button>
+        <button class="prompt-pill" onclick="sendSuggestedPrompt('I am allergic to prawn and peanuts')">
+          <span class="icon">⚠️</span>
+          <span>I am allergic to prawn & peanuts</span>
+        </button>
+        <button class="prompt-pill" onclick="sendSuggestedPrompt('Find nearby grocery stores near 100 Main St')">
+          <span class="icon">🏪</span>
+          <span>Find nearby grocery stores</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Input Footer -->
+    <div class="input-container">
+      <input type="text" id="chat-input" class="chat-input" placeholder="Ask about recipes, record allergies, search stores..." onkeypress="handleKeyPress(event)">
+      <button id="send-btn" class="send-btn" onclick="sendMessage()">Send</button>
+    </div>
+  </div>
+
+  <script>
+    let userId = localStorage.getItem("smart_recipe_user_id");
+    if (!userId) {
+      userId = "user_" + Math.floor(100000 + Math.random() * 900000);
+      localStorage.setItem("smart_recipe_user_id", userId);
+    }
+    document.getElementById("badge-text").textContent = `Memory Active (${userId})`;
+
+    const messagesContainer = document.getElementById("chat-messages");
+    const chatInput = document.getElementById("chat-input");
+    const sendBtn = document.getElementById("send-btn");
+    const historyList = document.getElementById("history-list");
+    const allergyChipsWrapper = document.getElementById("allergy-chips-wrapper");
+
+    let queryHistory = JSON.parse(localStorage.getItem("smart_recipe_history") || "[]");
+
+    // Initialize Active Allergies & History
+    fetchUserAllergies();
+    renderHistoryList();
+
+    // Drawer Toggle
+    function toggleSidebarDrawer() {
+      const drawer = document.getElementById("sidebar-drawer");
+      const backdrop = document.getElementById("drawer-backdrop");
+      drawer.classList.toggle("open");
+      backdrop.classList.toggle("open");
+    }
+
+    // History Functions
+    function recordQueryInHistory(query) {
+      if (!query || queryHistory.includes(query)) return;
+      queryHistory.unshift(query);
+      if (queryHistory.length > 8) queryHistory.pop();
+      localStorage.setItem("smart_recipe_history", JSON.stringify(queryHistory));
+      renderHistoryList();
+    }
+
+    function renderHistoryList() {
+      if (!historyList) return;
+      if (queryHistory.length === 0) {
+        historyList.innerHTML = '<div style="font-size: 0.8rem; color: #64748b;">No recent queries yet.</div>';
+        return;
+      }
+      historyList.innerHTML = queryHistory.map(q => `
+        <div class="history-item" onclick="sendSuggestedPrompt('${q.replace(/'/g, "\\'")}')">
+          <span>💬</span>
+          <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${q}</span>
+        </div>
+      `).join("");
+    }
+
+    // 🛡️ Feature 1: Active Allergy Bar Functions
+    async function fetchUserAllergies() {
+      try {
+        const res = await fetch(`/api/allergies?user_id=${userId}`);
+        const data = await res.json();
+        const allergies = data.allergies || [];
+        renderAllergyChips(allergies);
+      } catch (e) {
+        console.error("Failed to fetch allergies:", e);
+        allergyChipsWrapper.innerHTML = '<span style="font-size: 0.8rem; color: #94a3b8;">No active allergies set</span>';
+      }
+    }
+
+    function renderAllergyChips(allergies) {
+      if (!allergies || allergies.length === 0) {
+        allergyChipsWrapper.innerHTML = '<span style="font-size: 0.8rem; color: #94a3b8;">No active allergies set</span>';
+        return;
+      }
+      allergyChipsWrapper.innerHTML = allergies.map(a => `
+        <span class="allergy-chip">
+          🚫 ${a}
+          <button onclick="removeAllergy('${a}')" title="Remove ${a}">✕</button>
+        </span>
+      `).join("");
+    }
+
+    function toggleInlineAllergyInput() {
+      const wrapper = document.getElementById("inline-allergy-input-wrapper");
+      const input = document.getElementById("inline-allergy-input");
+      if (wrapper.style.display === "flex") {
+        wrapper.style.display = "none";
+      } else {
+        wrapper.style.display = "flex";
+        input.focus();
+      }
+    }
+
+    function handleAllergyInputKeyPress(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitNewAllergyFromInput();
+      }
+    }
+
+    async function submitNewAllergyFromInput() {
+      const input = document.getElementById("inline-allergy-input");
+      const val = input.value.trim();
+      if (!val) return;
+
+      try {
+        const res = await fetch("/api/allergies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, allergen: val, action: "add" })
+        });
+        const data = await res.json();
+        renderAllergyChips(data.allergies || []);
+        input.value = "";
+        document.getElementById("inline-allergy-input-wrapper").style.display = "none";
+      } catch (e) {
+        alert("Failed to add allergy: " + e.message);
+      }
+    }
+
+    async function removeAllergy(allergen) {
+      try {
+        const res = await fetch("/api/allergies", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ user_id: userId, allergen: allergen, action: "remove" })
+        });
+        const data = await res.json();
+        renderAllergyChips(data.allergies || []);
+      } catch (e) {
+        alert("Failed to remove allergy: " + e.message);
+      }
+    }
+
+    function handleKeyPress(e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    }
+
+    function sendSuggestedPrompt(promptText) {
+      chatInput.value = promptText;
+      sendMessage();
+    }
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+
+      recordQueryInHistory(text);
+
+      appendDialogue(text, "user");
+      chatInput.value = "";
+      sendBtn.disabled = true;
+
+      // Temporary loading indicator
+      const agentMsgObj = appendDialogue("", "agent");
+      const contentEl = agentMsgObj.contentEl;
+      contentEl.innerHTML = '<div class="loading-dots"><span></span><span></span><span></span></div> Smart Chef is cooking up a response...';
+
+      try {
+        const response = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, user_id: userId })
+        });
+
+        const data = await response.json();
+        if (response.ok && data.response) {
+          renderMessageContent(contentEl, data.response, agentMsgObj.rowEl);
+          // Auto-refresh active allergies in header widget after response
+          fetchUserAllergies();
+        } else {
+          contentEl.textContent = "Error: " + (data.detail || data.error || "Failed to get response");
+        }
+      } catch (err) {
+        contentEl.textContent = "Error communicating with agent: " + err.message;
+      } finally {
+        sendBtn.disabled = false;
+        chatInput.focus();
+      }
+    }
+
+    function renderA2UISurface(parsed) {
+      const wrapperDiv = document.createElement("div");
+      wrapperDiv.className = "a2ui-surface-wrapper";
+
+      const components = (parsed.surfaceUpdate && parsed.surfaceUpdate.components) || [];
+      const compMap = new Map();
+      components.forEach(c => compMap.set(c.id, c.component));
+
+      const rootId = (parsed.beginRendering && parsed.beginRendering.root) || (components[0] && components[0].id);
+
+      function renderComponent(id) {
+        if (!id || !compMap.has(id)) return null;
+        const compObj = compMap.get(id);
+        const compType = Object.keys(compObj)[0];
+        const compData = compObj[compType];
+
+        if (compType === "Card") {
+          const cardEl = document.createElement("div");
+          cardEl.style.cssText = "background: rgba(30, 41, 59, 0.95); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 18px; padding: 1.25rem; margin-top: 0.5rem; box-shadow: 0 10px 25px rgba(0,0,0,0.4);";
+          if (compData.child) {
+            const childEl = renderComponent(compData.child);
+            if (childEl) cardEl.appendChild(childEl);
+          }
+          return cardEl;
+        }
+
+        if (compType === "Column") {
+          const colEl = document.createElement("div");
+          colEl.style.cssText = "display: flex; flex-direction: column; gap: 0.75rem;";
+          const children = (compData.children && compData.children.explicitList) || [];
+          children.forEach(childId => {
+            const childEl = renderComponent(childId);
+            if (childEl) colEl.appendChild(childEl);
+          });
+          return colEl;
+        }
+
+        if (compType === "Row") {
+          const rowEl = document.createElement("div");
+          rowEl.style.cssText = "display: flex; flex-direction: row; gap: 0.75rem; align-items: center;";
+          const children = (compData.children && compData.children.explicitList) || [];
+          children.forEach(childId => {
+            const childEl = renderComponent(childId);
+            if (childEl) rowEl.appendChild(childEl);
+          });
+          return rowEl;
+        }
+
+        function cleanTextFormatting(str) {
+          if (!str || typeof str !== "string") return "";
+          return str.replace(/\\r\\n/g, '\n').replace(/\\n/g, '\n').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        }
+
+        if (compType === "Text") {
+          const hint = compData.usageHint || "body";
+          let textVal = "";
+          if (typeof compData.text === "object") {
+            textVal = compData.text.literalString || compData.text.boundPath || "";
+          } else if (typeof compData.text === "string") {
+            textVal = compData.text;
+          }
+          textVal = cleanTextFormatting(textVal);
+
+          let textEl;
+          if (hint === "h1" || hint === "h2") {
+            textEl = document.createElement("h2");
+            textEl.style.cssText = "font-size: 1.25rem; font-weight: 700; color: #fbbf24; margin-bottom: 0.25rem;";
+          } else if (hint === "h3") {
+            textEl = document.createElement("h3");
+            textEl.style.cssText = "font-size: 1.1rem; font-weight: 600; color: #f97316; margin-bottom: 0.25rem;";
+          } else if (hint === "h4") {
+            textEl = document.createElement("h4");
+            textEl.style.cssText = "font-size: 0.95rem; font-weight: 600; color: #fbbf24; margin-top: 0.5rem;";
+          } else {
+            textEl = document.createElement("div");
+            textEl.style.cssText = "font-size: 0.9rem; line-height: 1.5; color: #e2e8f0; white-space: pre-wrap;";
+          }
+          textEl.textContent = textVal;
+          return textEl;
+        }
+
+        if (compType === "Image") {
+          const imgEl = document.createElement("img");
+          let url = "";
+          if (typeof compData.url === "object" && compData.url !== null) {
+            url = compData.url.literalString || compData.url.boundPath || "";
+          } else if (typeof compData.url === "string") {
+            url = compData.url;
+          }
+          let alt = "Recipe Image";
+          if (typeof compData.altText === "object" && compData.altText !== null) {
+            alt = compData.altText.literalString || compData.altText.boundPath || "Recipe Image";
+          } else if (typeof compData.altText === "string") {
+            alt = compData.altText;
+          }
+
+          if (url && typeof url === "string" && !url.startsWith("[object")) {
+            imgEl.src = url;
+            imgEl.alt = alt;
+            imgEl.style.cssText = "max-width: 100%; border-radius: 12px; object-fit: cover; max-height: 260px; margin: 0.5rem 0;";
+            return imgEl;
+          }
+          return null;
+        }
+
+        if (compType === "Divider") {
+          const divEl = document.createElement("hr");
+          divEl.style.cssText = "border: 0; border-top: 1px solid rgba(255,255,255,0.12); margin: 0.75rem 0;";
+          return divEl;
+        }
+
+        if (compType === "Button") {
+          const btnEl = document.createElement("button");
+          btnEl.className = "send-btn";
+          btnEl.style.cssText = "padding: 0.5rem 1rem; font-size: 0.85rem; margin-top: 0.5rem;";
+          
+          let labelText = "Action";
+          if (compData.child) {
+            if (typeof compData.child === "string" && compMap.has(compData.child)) {
+              const childObj = compMap.get(compData.child);
+              if (childObj.Text) {
+                labelText = (typeof childObj.Text.text === "object" ? childObj.Text.text.literalString : childObj.Text.text) || "Action";
+              }
+            } else if (compData.child.Text) {
+              labelText = (typeof compData.child.Text.text === "object" ? compData.child.Text.text.literalString : compData.child.Text.text) || "Action";
+            }
+          } else if (compData.label) {
+            labelText = (typeof compData.label === "object" ? compData.label.literalString : compData.label) || "Action";
+          }
+          btnEl.textContent = cleanTextFormatting(labelText).replace(/\n/g, " ");
+
+          if (compData.action) {
+            btnEl.onclick = () => {
+              let detailsDiv = btnEl.nextElementSibling;
+              if (detailsDiv && detailsDiv.classList.contains("recipe-action-details")) {
+                detailsDiv.style.display = detailsDiv.style.display === "none" ? "block" : "none";
+                return;
+              }
+              detailsDiv = document.createElement("div");
+              detailsDiv.className = "recipe-action-details";
+              detailsDiv.style.cssText = "margin-top: 0.75rem; padding: 0.85rem 1.1rem; background: rgba(15, 23, 42, 0.85); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 12px; font-size: 0.88rem; color: #cbd5e1; line-height: 1.6; white-space: pre-wrap;";
+
+              let htmlContent = "";
+              if (compData.action.context && Array.isArray(compData.action.context)) {
+                compData.action.context.forEach(ctx => {
+                  const keyName = ctx.key ? (ctx.key.charAt(0).toUpperCase() + ctx.key.slice(1)) : "Details";
+                  let valStr = (ctx.value && typeof ctx.value === "object" ? ctx.value.literalString : ctx.value) || "";
+                  valStr = cleanTextFormatting(valStr);
+                  const safeVal = valStr.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                  htmlContent += `<div style="margin-bottom: 0.75rem;"><strong style="color: #fbbf24; font-size: 0.9rem;">${keyName}:</strong><div style="margin-top: 0.25rem;">${safeVal}</div></div>`;
+                });
+              } else {
+                htmlContent = `<div style="color: #fbbf24;">${compData.action.name || "Action triggered"}</div>`;
+              }
+              detailsDiv.innerHTML = htmlContent;
+              btnEl.parentNode.appendChild(detailsDiv);
+            };
+          }
+          return btnEl;
+        }
+
+        return null;
+      }
+
+      const renderedRoot = renderComponent(rootId);
+      if (renderedRoot) {
+        wrapperDiv.appendChild(renderedRoot);
+      }
+      return wrapperDiv;
+    }
+
+    function renderMessageContent(contentEl, text, rowEl) {
+      const a2uiRegex = /<a2ui-json>([\s\S]*?)<\/a2ui-json>/g;
+      let match;
+      let cleanText = text;
+      let a2uiBlocks = [];
+
+      while ((match = a2uiRegex.exec(text)) !== null) {
+        a2uiBlocks.push(match[1]);
+        cleanText = cleanText.replace(match[0], "");
+      }
+
+      cleanText = cleanText.trim();
+      if (cleanText) {
+        contentEl.textContent = cleanText;
+      } else {
+        contentEl.style.display = "none";
+      }
+
+      const bubbleContainer = rowEl.querySelector(".bubble-container");
+
+      for (const block of a2uiBlocks) {
+        try {
+          const parsed = JSON.parse(block.trim());
+          const surfaceElement = renderA2UISurface(parsed);
+          bubbleContainer.appendChild(surfaceElement);
+        } catch (e) {
+          console.error("Failed to parse A2UI block:", e);
+        }
+      }
+
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function appendDialogue(text, role) {
+      const rowEl = document.createElement("div");
+      rowEl.className = `dialogue-row ${role}`;
+
+      const avatarEl = document.createElement("div");
+      avatarEl.className = "avatar";
+      avatarEl.textContent = role === "user" ? "👤" : "👨‍🍳";
+
+      const bubbleContainer = document.createElement("div");
+      bubbleContainer.className = "bubble-container";
+
+      const metaEl = document.createElement("div");
+      metaEl.className = "sender-meta";
+      metaEl.textContent = role === "user" ? "You" : "Smart Chef • Assistant";
+
+      const contentEl = document.createElement("div");
+      contentEl.className = "message-content";
+      contentEl.textContent = text;
+
+      bubbleContainer.appendChild(metaEl);
+      bubbleContainer.appendChild(contentEl);
+
+      rowEl.appendChild(avatarEl);
+      rowEl.appendChild(bubbleContainer);
+
+      messagesContainer.appendChild(rowEl);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+      return { rowEl, contentEl };
+    }
+  </script>
+</body>
+</html>

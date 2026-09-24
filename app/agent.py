@@ -18,17 +18,75 @@ import json
 import uuid
 from zoneinfo import ZoneInfo
 
+import os
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.apps import App
+from google.adk.code_executors import AgentEngineSandboxCodeExecutor
 from google.adk.models import Gemini
 from google.adk.tools import ToolContext
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from google.cloud import firestore
 from google.genai import types
 
-FIRESTORE_PROJECT_ID = "qwiklabs-gcp-03-d94214de97af"
-STORAGE_BUCKET_NAME = "smart-recipe-assistant-qwiklabs-gcp-03-d94214de97af"
+from app.a2ui_utils import build_a2ui_prompt, a2ui_after_model_callback
+
+FIRESTORE_PROJECT_ID = "qwiklabs-gcp-03-d2603dc6aba2"
+STORAGE_BUCKET_NAME = "smart-recipe-assistant-qwiklabs-gcp-03-d2603dc6aba2"
+
+
+def record_user_allergy(allergen: str, tool_context: ToolContext) -> str:
+    """Stores a user's food allergy as a key-value pair in the Firestore database.
+
+    Args:
+        allergen: The name of the food item or allergen (e.g. 'prawn', 'shrimp', 'peanuts', 'dairy').
+        tool_context: ADK ToolContext automatically passed by the runner.
+
+    Returns:
+        Confirmation message that the allergy was recorded in Firestore.
+    """
+    try:
+        user_id = getattr(tool_context, "user_id", "default_user") or "default_user"
+        clean_allergen = allergen.strip().lower()
+        if not clean_allergen:
+            return "No allergen provided."
+
+        db = firestore.Client(project=FIRESTORE_PROJECT_ID)
+        doc_ref = db.collection("user_allergies").document(user_id)
+
+        doc_ref.set({
+            clean_allergen: True,
+            "user_id": user_id,
+            "last_updated": datetime.datetime.now(datetime.timezone.utc).isoformat()
+        }, merge=True)
+
+        return f"Successfully recorded key-value allergy '{clean_allergen}': True for user '{user_id}' in Firestore database."
+    except Exception as e:
+        return f"Error recording allergy in Firestore: {e}"
+
+
+def check_user_allergies(tool_context: ToolContext) -> str:
+    """Retrieves all stored key-value food allergies for the current user from Firestore.
+
+    Args:
+        tool_context: ADK ToolContext automatically passed by the runner.
+
+    Returns:
+        JSON string of active user allergies.
+    """
+    try:
+        user_id = getattr(tool_context, "user_id", "default_user") or "default_user"
+        db = firestore.Client(project=FIRESTORE_PROJECT_ID)
+        doc = db.collection("user_allergies").document(user_id).get()
+
+        if not doc.exists:
+            return json.dumps([])
+
+        data = doc.to_dict() or {}
+        allergies = [k for k, v in data.items() if v is True and k not in ("user_id", "last_updated")]
+        return json.dumps(allergies)
+    except Exception as e:
+        return f"Error checking user allergies from Firestore: {e}"
 
 
 def search_recipes(query: str = "", max_prep_time_mins: int = 0, exclude_allergens: str = "") -> str:
@@ -169,11 +227,12 @@ def scale_and_calculate_nutrition(
     return json.dumps(result, indent=2)
 
 
-def fetch_online_recipes(query: str = "chicken") -> str:
-    """Fetches real online recipes and meal ideas from the free public TheMealDB API.
+def fetch_online_recipes(query: str = "chicken", exclude_allergens: str = "") -> str:
+    """Fetches real online recipes and meal ideas from the free public TheMealDB API, excluding any specified allergens.
 
     Args:
         query: Search keyword for online recipes (e.g., 'chicken', 'pasta', 'salad', 'curry').
+        exclude_allergens: Optional comma-separated list of allergens to strictly exclude (e.g., 'prawn, shellfish, peanuts').
 
     Returns:
         A JSON string containing real online recipes with ingredients, category, area, and instructions.
@@ -183,37 +242,113 @@ def fetch_online_recipes(query: str = "chicken") -> str:
     import urllib.request
 
     api_key = os.getenv("THEMEALDB_API_KEY", "1")
-    safe_query = urllib.parse.quote(query.strip() if query else "chicken")
-    url = f"https://www.themealdb.com/api/json/v1/{api_key}/search.php?s={safe_query}"
+    raw_query = (query or "chicken").strip().lower()
+    excluded = [a.strip().lower() for a in exclude_allergens.split(",") if a.strip()]
+
+    for exc in excluded:
+        if exc in raw_query:
+            return json.dumps({
+                "status": "REFUSED_ALLERGEN",
+                "allergen": exc,
+                "message": f"REFUSAL MANDATED: The requested query '{query}' contains the user's stored allergen '{exc}'. You MUST POLITELY REFUSE this request and ask for a different recipe name."
+            })
+
+    def fetch_meals_for_term(term: str):
+        safe_term = urllib.parse.quote(term)
+        url = f"https://www.themealdb.com/api/json/v1/{api_key}/search.php?s={safe_term}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "SmartRecipeAssistant/1.0"})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode())
+                return data.get("meals") or []
+        except Exception:
+            return []
 
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "SmartRecipeAssistant/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as response:
-            data = json.loads(response.read().decode())
-            meals = data.get("meals")
-            if not meals:
-                return f"No online recipes found matching '{query}'."
+        words = [w for w in raw_query.split() if w not in ("with", "and", "in", "of", "for", "a", "the")]
+        search_terms = [raw_query] + words
 
-            simplified_meals = []
-            for meal in meals[:5]:
-                ingredients = []
-                for i in range(1, 21):
-                    ing = meal.get(f"strIngredient{i}")
-                    measure = meal.get(f"strMeasure{i}")
-                    if ing and ing.strip():
-                        ingredients.append(f"{measure.strip() if measure else ''} {ing.strip()}".strip())
+        # Expand search terms for pasta/noodle queries
+        if "pasta" in words or "noodle" in words or "spaghetti" in words:
+            search_terms.extend(["alfredo", "fettuccine", "spaghetti", "penne", "macaroni", "lasagne", "linguine", "pasta"])
+        if "chicken" in words:
+            search_terms.extend(["chicken"])
 
-                simplified_meals.append({
-                    "id": meal.get("idMeal"),
-                    "title": meal.get("strMeal"),
-                    "category": meal.get("strCategory"),
-                    "area": meal.get("strArea"),
-                    "instructions": (meal.get("strInstructions", "")[:300] + "..."),
-                    "ingredients": ingredients,
-                    "thumbnail_url": meal.get("strMealThumb"),
-                })
+        seen_ids = set()
+        all_meals = []
 
-            return json.dumps(simplified_meals, indent=2)
+        for term in search_terms:
+            term_meals = fetch_meals_for_term(term)
+            for meal in term_meals:
+                meal_id = meal.get("idMeal")
+                if meal_id and meal_id not in seen_ids:
+                    seen_ids.add(meal_id)
+                    all_meals.append(meal)
+
+        pasta_synonyms = {"pasta", "spaghetti", "fettuccine", "penne", "macaroni", "lasagne", "linguine", "alfredo", "rigatoni", "tagliatelle", "passata"}
+
+        def score_meal(m):
+            title = (m.get("strMeal") or "").lower()
+            cat = (m.get("strCategory") or "").lower()
+            ingredients = " ".join([m.get(f"strIngredient{i}", "") or "" for i in range(1, 21)]).lower()
+            text = f"{title} {cat} {ingredients} {m.get('strInstructions', '').lower()}"
+
+            score = 0
+            for w in words:
+                if w in title:
+                    score += 5
+                elif w in cat or w in ingredients:
+                    score += 3
+                elif w in text:
+                    score += 1
+
+            has_chicken = "chicken" in title or "chicken" in ingredients or "chicken" in text
+            has_pasta = any(ps in title or ps in ingredients for ps in pasta_synonyms)
+
+            if "chicken" in words and ("pasta" in words or "spaghetti" in words or "noodle" in words):
+                if has_chicken and has_pasta:
+                    score += 20
+
+            return score
+
+        all_meals.sort(key=score_meal, reverse=True)
+
+        simplified_meals = []
+        for meal in all_meals:
+            title = (meal.get("strMeal") or "").lower()
+            ingredients = []
+            ing_text_parts = []
+            for i in range(1, 21):
+                ing = meal.get(f"strIngredient{i}")
+                measure = meal.get(f"strMeasure{i}")
+                if ing and ing.strip():
+                    ing_str = f"{measure.strip() if measure else ''} {ing.strip()}".strip()
+                    ingredients.append(ing_str)
+                    ing_text_parts.append(ing.strip().lower())
+
+            full_meal_text = f"{title} {' '.join(ing_text_parts)}"
+
+            # Exclude meal if any allergen is present
+            if any(exc in full_meal_text for exc in excluded):
+                continue
+
+            raw_inst = (meal.get("strInstructions") or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+            simplified_meals.append({
+                "id": meal.get("idMeal"),
+                "title": meal.get("strMeal"),
+                "category": meal.get("strCategory"),
+                "area": meal.get("strArea"),
+                "instructions": (raw_inst[:300] + "..." if len(raw_inst) > 300 else raw_inst),
+                "ingredients": ingredients,
+                "thumbnail_url": meal.get("strMealThumb"),
+            })
+            if len(simplified_meals) >= 5:
+                break
+
+        if not simplified_meals:
+            return f"No online recipes found matching '{query}' that comply with allergen restrictions '{exclude_allergens}'."
+
+        return json.dumps(simplified_meals, indent=2)
     except Exception as e:
         return f"Error fetching online recipes from public API: {e}"
 
@@ -365,12 +500,12 @@ def get_current_time(query: str) -> str:
 
 
 async def generate_memories_callback(callback_context: CallbackContext):
-    """Sends the session events to Vertex AI Memory Bank after each turn."""
+    """Sends the session events to Vertex AI Memory Bank after each turn to save user preferences, allergies, and interactions."""
     if getattr(callback_context, "memory_service", None) is not None:
         try:
             await callback_context.add_session_to_memory()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Memory save notification: {e}")
     return None
 
 
@@ -429,7 +564,7 @@ def consult_herbal_docs(query: str) -> str:
         return f"Retrieval failed: {e}"
 
 
-def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
+async def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
     """Generates a visual image of a recipe dish using AI, saves it as an artifact, uploads it to public Cloud Storage, and returns its public URL.
 
     Args:
@@ -439,6 +574,7 @@ def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
     Returns:
         The public HTTPS URL of the uploaded image in Cloud Storage.
     """
+    import inspect
     import re
     import uuid
     from google import genai
@@ -477,7 +613,9 @@ def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
     if tool_context and hasattr(tool_context, "save_artifact"):
         try:
             artifact_part = types.Part.from_bytes(data=image_bytes, mime_type="image/png")
-            tool_context.save_artifact(filename=unique_filename, artifact=artifact_part)
+            res = tool_context.save_artifact(filename=unique_filename, artifact=artifact_part)
+            if inspect.isawaitable(res):
+                await res
         except Exception as e:
             print(f"Warning: Failed to save artifact: {e}")
 
@@ -494,6 +632,44 @@ def generate_recipe_image(dish_name: str, tool_context: ToolContext) -> str:
         return f"Failed to upload image to Cloud Storage: {e}"
 
 
+# Read Agent Engine resource name from deployment_metadata.json if present
+_metadata_path = os.path.join(os.path.dirname(__file__), "..", "deployment_metadata.json")
+_agent_engine_resource_name = None
+if os.path.exists(_metadata_path):
+    try:
+        with open(_metadata_path, "r") as _f:
+            _metadata = json.load(_f)
+            _agent_engine_resource_name = _metadata.get("remote_agent_runtime_id")
+    except Exception as _e:
+        print(f"Warning: Failed to load deployment_metadata.json: {_e}")
+
+code_executor = None
+if _agent_engine_resource_name:
+    try:
+        code_executor = AgentEngineSandboxCodeExecutor(
+            agent_engine_resource_name=_agent_engine_resource_name
+        )
+    except Exception as _e:
+        print(f"Warning: Could not initialize AgentEngineSandboxCodeExecutor: {_e}")
+
+_role_description = (
+    "You are a Smart Recipe & Dietary Assistant.\n"
+    "CRITICAL FIRESTORE ALLERGY & REFUSAL RULES:\n"
+    "1. Whenever the user states or mentions an allergy, food restriction, or intolerance (e.g. 'I am allergic to prawn', 'allergy: peanuts', 'I cannot eat shrimp'), you MUST IMMEDIATELY call `record_user_allergy(allergen=...)` to store the allergy as a key-value pair in Firestore.\n"
+    "2. BEFORE responding to ANY recipe request, food query, or meal recommendation, ALWAYS call `check_user_allergies()` to fetch all active user allergies stored in Firestore.\n"
+    "3. POLITE REFUSAL RULE: If the user explicitly asks for a dish or recipe that contains their stored allergy in the name or ingredients (e.g. asking for 'prawn pasta' or 'prawn curry' when allergic to prawn), or if any searched recipe contains their stored allergen in the title or ingredients: You MUST POLITELY REFUSE the request (e.g. 'I see you are allergic to prawn, so I cannot provide a prawn recipe for your safety.') AND ask the user to request a different recipe name (e.g. 'Would you like a Chicken Alfredo or Vegetable Pasta recipe instead?'). DO NOT render an A2UI card for a refused dish.\n"
+    "4. When searching for recipes, ALWAYS pass all stored user allergies into `exclude_allergens` in `search_recipes` and `fetch_online_recipes`.\n"
+    "5. ABSOLUTELY NEVER suggest, list, or present any recipe or ingredient containing a user allergen.\n"
+    "6. Use `save_recipe` when the user asks to save or store a new recipe.\n"
+    "7. Use `scale_and_calculate_nutrition` when the user asks to adjust serving sizes or scale recipe quantities.\n"
+    "8. Use `fetch_online_recipes` to search for real global recipes.\n"
+    "9. Use `geocode_address` to turn street addresses into geographic coordinates.\n"
+    "10. Use `find_nearby_places` to find nearby supermarkets, grocery stores, restaurants, or bakeries.\n"
+    "11. Use `consult_herbal_docs` to search Nicholas Culpeper's Complete Herbal document corpus.\n"
+    "12. Use `generate_recipe_image` to generate a photo of a dish using AI.\n"
+    "13. ALWAYS render safe non-refused recipes using A2UI UI JSON components wrapped in <a2ui-json> and </a2ui-json> tags. If a request is refused due to allergies, reply with plain polite text and ask for a different recipe name."
+)
+
 root_agent = Agent(
     name="root_agent",
     model=Gemini(
@@ -503,22 +679,11 @@ root_agent = Agent(
         location="us-east1",
         retry_options=types.HttpRetryOptions(attempts=3),
     ),
-    instruction=(
-        "You are a Smart Recipe & Dietary Assistant.\n"
-        "CRITICAL MEMORY & DIETARY SAFETY RULES:\n"
-        "1. You MUST track, remember, and strictly enforce ALL user allergies, food intolerances, and dietary restrictions mentioned across previous and current sessions.\n"
-        "2. When answering recipe requests or suggesting food options, ALWAYS search the Firestore database using `search_recipes` and check preloaded user memories for any recorded allergies or dietary constraints.\n"
-        "3. NEVER recommend, list, or include any ingredients that conflict with the user's recorded allergies or dietary restrictions.\n"
-        "4. Use `save_recipe` when the user asks to save or store a new recipe.\n"
-        "5. Use `scale_and_calculate_nutrition` when the user asks to adjust serving sizes or scale recipe quantities and estimate nutrition.\n"
-        "6. Use `fetch_online_recipes` to search for real global recipes, inspiration, or dishes from the public online database.\n"
-        "7. Use `geocode_address` to turn street addresses into geographic coordinates (lat/lng).\n"
-        "8. Use `find_nearby_places` to find nearby supermarkets, grocery stores, restaurants, or bakeries around given coordinates.\n"
-        "9. Use `consult_herbal_docs` to search Nicholas Culpeper's Complete Herbal document corpus for medicinal plants, herbs, natural remedies, and historical recipes.\n"
-        "10. Use `generate_recipe_image` to generate a photo of a recipe dish using AI, save it as an artifact, and upload it to Cloud Storage."
-    ),
+    instruction=build_a2ui_prompt(_role_description, version="0.8"),
     tools=[
         PreloadMemoryTool(),
+        record_user_allergy,
+        check_user_allergies,
         search_recipes,
         save_recipe,
         scale_and_calculate_nutrition,
@@ -530,6 +695,8 @@ root_agent = Agent(
         get_weather,
         get_current_time,
     ],
+    code_executor=code_executor,
+    after_model_callback=a2ui_after_model_callback,
     after_agent_callback=generate_memories_callback,
 )
 
@@ -537,3 +704,4 @@ app = App(
     root_agent=root_agent,
     name="app",
 )
+

@@ -3,7 +3,7 @@
 
 from google.cloud import firestore
 
-PROJECT_ID = "qwiklabs-gcp-03-d94214de97af"
+PROJECT_ID = "qwiklabs-gcp-03-d2603dc6aba2"
 
 SEED_RECIPES = [
     {
